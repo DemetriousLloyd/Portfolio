@@ -1,0 +1,56 @@
+let
+    client_id = "174093",
+    client_secret = "c4348a774193b9848f8a2ec4730165923b41c9cb",
+    refresh_token = "daa6dee0e218c24088ec10dd3a06f7c0eebc640b",
+    token_url = "https://www.strava.com/oauth/token",
+    post_body = "client_id=" & client_id & 
+                "&client_secret=" & client_secret & 
+                "&refresh_token=" & refresh_token & 
+                "&grant_type=refresh_token",
+    response = Json.Document(
+        Web.Contents(token_url,
+            [
+                Content = Text.ToBinary(post_body),
+                Headers = [
+                    #"Content-Type" = "application/x-www-form-urlencoded"
+                ],
+                ManualStatusHandling = {400, 401, 403, 500}
+            ]
+        )
+    ),
+    access_token_refreshes = response[access_token],
+    access_token = access_token_refreshes,  // Replace with your token
+    baseUrl = "https://www.strava.com/api/v3/athlete/activities",
+    perPage = 200,
+
+    GetPage = (pageNumber as number) =>
+    let
+        url = baseUrl & "?access_token=" & access_token & "&page=" & Text.From(pageNumber) & "&per_page=" & Text.From(perPage),
+        raw = Json.Document(Web.Contents(url)),
+        isList = if raw is list then true else false,
+        table = if isList then
+                    Table.FromList(raw, Splitter.SplitByNothing(), null, null, ExtraValues.Error)
+                else
+                    #table({}, {}),  // Return empty table if not a list
+        expanded = if Table.HasColumns(table, "Column1") then
+                      Table.ExpandRecordColumn(table, "Column1", {
+                          "id", "name", "distance", "moving_time", "elapsed_time", "type", "start_date", "average_speed", "max_speed"
+                      }, {
+                          "ID", "Name", "Distance", "MovingTime", "ElapsedTime", "Type", "StartDate", "AvgSpeed", "MaxSpeed"
+                      })
+                  else
+                      table
+    in
+        expanded,
+
+    // Loop through pages until an empty result is returned
+    Pagination_Loop = List.Generate(
+        () => [page = 1, data = GetPage(1)],
+        each Table.RowCount([data]) > 0,
+        each [page = [page] + 1, data = GetPage([page] + 1)],
+        each [data]
+    ),
+    // Loop through pages until an empty result is returned
+    PageLoop1 = Table.Combine(Pagination_Loop)
+in
+    PageLoop1
